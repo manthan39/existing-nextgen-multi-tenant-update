@@ -1,12 +1,14 @@
 import { Fragment, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Bot,
   CalendarCheck,
   ChevronDown,
   ChevronRight,
   Handshake,
   Pencil,
   Plus,
+  Timer,
   Trash2,
   Users,
 } from "lucide-react";
@@ -84,15 +86,26 @@ export function PerformanceTab({ leads, clientId }: { leads: Lead[]; clientId: s
     [activity, period],
   );
 
-  const kpis = useMemo(
-    () => ({
+  const kpis = useMemo(() => {
+    const botActive = periodLeads.filter((l) => !!l.bot_active).length;
+    return {
       total: periodLeads.length,
       visits: periodLeads.filter((l) => l.status === "SITE_VISIT_BOOKED").length,
       handovers: periodLeads.filter((l) => l.property_state === "HUMAN_HANDOVER").length,
       unattended: periodLeads.filter((l) => l.alert_sent_at && l.status !== "VISIT_DONE").length,
-    }),
-    [periodLeads],
-  );
+      botActiveRate: periodLeads.length > 0 ? Math.round((botActive / periodLeads.length) * 100) : 0,
+    };
+  }, [periodLeads]);
+
+  const actionBreakdown = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const a of periodActivity) {
+      if (a.action) counts[a.action] = (counts[a.action] ?? 0) + 1;
+    }
+    return Object.entries(counts)
+      .map(([action, count]) => ({ action, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [periodActivity]);
 
   const board = useMemo(() => {
     const rows = buildExecStats(leads, activity, period);
@@ -102,6 +115,15 @@ export function PerformanceTab({ leads, clientId }: { leads: Lead[]; clientId: s
       sort === "avgSla" ? Number(value(a)) - Number(value(b)) : Number(value(b)) - Number(value(a)),
     );
   }, [leads, activity, period, sort]);
+
+  const firstContactLeaderboard = useMemo(
+    () =>
+      board
+        .filter((r) => r.avgSla !== null)
+        .sort((a, b) => (a.avgSla ?? 0) - (b.avgSla ?? 0))
+        .slice(0, 5),
+    [board],
+  );
 
   const chart = useMemo(() => dailyActivity(activity, period), [activity, period]);
   const maxDay = Math.max(1, ...chart.map((c) => c.count));
@@ -139,7 +161,7 @@ export function PerformanceTab({ leads, clientId }: { leads: Lead[]; clientId: s
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Kpi icon={<Users className="size-5" />} label="Total Leads" value={kpis.total} />
         <Kpi
           icon={<CalendarCheck className="size-5" />}
@@ -156,6 +178,13 @@ export function PerformanceTab({ leads, clientId }: { leads: Lead[]; clientId: s
           label="Unattended Alerts"
           value={kpis.unattended}
           danger
+        />
+        <Kpi
+          icon={<Bot className="size-5" />}
+          label="Bot Active Rate"
+          value={kpis.botActiveRate}
+          suffix="%"
+          danger={kpis.botActiveRate < 50}
         />
       </div>
 
@@ -315,6 +344,60 @@ export function PerformanceTab({ leads, clientId }: { leads: Lead[]; clientId: s
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Action breakdown</CardTitle>
+            <CardDescription>Types of actions taken this period</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {actionBreakdown.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No actions recorded yet.</p>
+            ) : (() => {
+              const maxCount = Math.max(1, ...actionBreakdown.map((a) => a.count));
+              return actionBreakdown.map(({ action, count }) => (
+                <div key={action} className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-medium">{ACTION_LABELS[action]?.label ?? action}</span>
+                    <span className="text-muted-foreground">{count}</span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className="h-full rounded-full bg-primary/70"
+                      style={{ width: `${(count / maxCount) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ));
+            })()}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Timer className="size-4" /> First contact speed
+            </CardTitle>
+            <CardDescription>Executives ranked by fastest avg response time</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {firstContactLeaderboard.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No SLA data yet.</p>
+            ) : (
+              firstContactLeaderboard.map((row, i) => (
+                <div key={row.name} className="flex items-center gap-3">
+                  <span className="w-5 text-right text-xs font-semibold text-muted-foreground">
+                    {i + 1}.
+                  </span>
+                  <span className="flex-1 text-sm font-medium">{row.name}</span>
+                  <ToneBadge tone={slaTone(row.avgSla)} label={formatMinutes(row.avgSla ?? 0)} />
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Daily team activity</CardTitle>
           </CardHeader>
           <CardContent>
@@ -383,11 +466,13 @@ function Kpi({
   icon,
   label,
   value,
+  suffix,
   danger,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number;
+  suffix?: string;
   danger?: boolean;
 }) {
   return (
@@ -400,7 +485,7 @@ function Kpi({
             className="text-2xl font-bold"
             style={danger && value > 0 ? { color: "var(--tone-red)" } : undefined}
           >
-            {value}
+            {value}{suffix}
           </p>
         </div>
       </CardContent>

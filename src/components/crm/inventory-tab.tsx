@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { FileText, ImageOff, LayoutGrid, LayoutList, MapPin, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, FileText, ImageOff, LayoutGrid, LayoutList, MapPin, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -169,7 +169,29 @@ export function InventoryTab({
   const [isNew, setIsNew] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("grid");
+  const [amenityFilter, setAmenityFilter] = useState("__all__");
   const del = useDeleteProperty();
+
+  const allAmenities = useMemo(
+    () =>
+      Array.from(new Set(properties.flatMap((p) => (Array.isArray(p.amenities) ? p.amenities : [])))).sort(),
+    [properties],
+  );
+
+  const visibleProperties = useMemo(
+    () =>
+      amenityFilter === "__all__"
+        ? properties
+        : properties.filter(
+            (p) => Array.isArray(p.amenities) && p.amenities.includes(amenityFilter),
+          ),
+    [properties, amenityFilter],
+  );
+
+  const possessionWarnings = useMemo(
+    () => properties.filter((p) => !p.possession_status || p.possession_status.trim() === "").length,
+    [properties],
+  );
 
   const openEdit = (p: Property) => {
     const draft = { ...EMPTY } as unknown as Record<string, unknown>;
@@ -201,7 +223,30 @@ export function InventoryTab({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">{properties.length} properties</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-muted-foreground">{visibleProperties.length} / {properties.length} properties</p>
+          {possessionWarnings > 0 && (
+            <div className="flex items-center gap-1 rounded-md border border-yellow-500/40 bg-yellow-50 px-2 py-1 text-xs text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400">
+              <AlertTriangle className="size-3" />
+              {possessionWarnings} missing possession date
+            </div>
+          )}
+          {allAmenities.length > 0 && (
+            <div className="space-y-0">
+              <Select value={amenityFilter} onValueChange={setAmenityFilter}>
+                <SelectTrigger className="h-8 min-w-[160px] text-xs">
+                  <SelectValue placeholder="Filter by amenity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All amenities</SelectItem>
+                  {allAmenities.map((a) => (
+                    <SelectItem key={a} value={a}>{a}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {/* View toggle */}
           <div className="flex rounded-lg border bg-background p-1">
@@ -231,12 +276,13 @@ export function InventoryTab({
         </div>
       </div>
 
+
       {loading && <p className="text-sm text-muted-foreground">Loading inventory…</p>}
 
       {/* ── Grid view ── */}
       {view === "grid" && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {properties.map((p) => (
+          {visibleProperties.map((p) => (
             <Card key={p.property_id} className="overflow-hidden">
               {p.image_urls && p.image_urls.length > 0 ? (
                 <img
@@ -264,10 +310,24 @@ export function InventoryTab({
               <CardContent className="space-y-3 text-sm">
                 <div className="flex items-baseline justify-between">
                   <span className="text-lg font-semibold">{formatMoney(p.price)}</span>
-                  <span className="text-muted-foreground">{p.area_sqft ?? "—"} sq.ft</span>
+                  <div className="text-right">
+                    <span className="text-muted-foreground">{p.area_sqft ?? "—"} sq.ft</span>
+                    {p.price && p.area_sqft ? (
+                      <p className="text-xs text-muted-foreground">
+                        ₹{Math.round(p.price / p.area_sqft).toLocaleString("en-IN")}/sq.ft
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <ToneBadge tone="indigo" label={p.stock_type ?? "—"} />
+                  {p.transaction_type && <ToneBadge tone="purple" label={p.transaction_type.replace(/_/g, " ")} />}
+                  {p.price_negotiable && <ToneBadge tone="green" label="Negotiable" />}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Stock: {p.stock_type} · {p.possession_status || "Possession N/A"}
+                  {p.possession_status
+                    ? p.possession_status
+                    : <span className="text-yellow-600 font-medium">Possession N/A ⚠</span>}
                 </p>
                 <div className="rounded-lg bg-muted/60 p-2 text-xs">
                   <p className="font-medium">{p.assigned_executive_name || "No executive"}</p>
@@ -314,21 +374,21 @@ export function InventoryTab({
                 <TableHead>Category</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Price</TableHead>
-                <TableHead>Area</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Area / ₹/sqft</TableHead>
+                <TableHead>Status &amp; Type</TableHead>
                 <TableHead>Executive</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {properties.length === 0 && (
+              {visibleProperties.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
                     No properties yet.
                   </TableCell>
                 </TableRow>
               )}
-              {properties.map((p) => (
+              {visibleProperties.map((p) => (
                 <TableRow key={p.property_id}>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -357,13 +417,22 @@ export function InventoryTab({
                     {formatMoney(p.price)}
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    {p.area_sqft ?? "—"} sq.ft
+                    <div>{p.area_sqft ?? "—"} sq.ft</div>
+                    {p.price && p.area_sqft ? (
+                      <div className="text-xs">₹{Math.round(p.price / p.area_sqft).toLocaleString("en-IN")}/sqft</div>
+                    ) : null}
                   </TableCell>
                   <TableCell>
-                    <ToneBadge
-                      tone={statusTone[p.status ?? "AVAILABLE"] ?? "gray"}
-                      label={p.status ?? "—"}
-                    />
+                    <div className="flex flex-col gap-1">
+                      <ToneBadge
+                        tone={statusTone[p.status ?? "AVAILABLE"] ?? "gray"}
+                        label={p.status ?? "—"}
+                      />
+                      <div className="flex flex-wrap gap-1">
+                        {p.stock_type && <ToneBadge tone="indigo" label={p.stock_type} />}
+                        {p.price_negotiable && <ToneBadge tone="green" label="Neg." />}
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell className="text-sm">
                     {p.assigned_executive_name || (

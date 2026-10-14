@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
+  BarChart2,
   Building2,
   LayoutList,
   LineChart,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AnalyticsTab } from "@/components/crm/analytics-tab";
 import { BudgetTab } from "@/components/crm/budget-tab";
 import { InventoryTab } from "@/components/crm/inventory-tab";
 import { IntegrationsTab } from "@/components/crm/integrations-tab";
@@ -56,6 +58,7 @@ const NAV_ITEMS = [
   { value: "leads", label: "Leads CRM", icon: LayoutList, adminOnly: false },
   { value: "budget", label: "Budget & Properties", icon: Wallet, adminOnly: true },
   { value: "team", label: "Team Performance", icon: LineChart, adminOnly: true },
+  { value: "analytics", label: "Analytics & Insights", icon: BarChart2, adminOnly: true },
   { value: "inventory", label: "Inventory", icon: Building2, adminOnly: true },
   { value: "integrations", label: "Lead Sources & WhatsApp", icon: Share2, adminOnly: true },
   { value: "profile", label: "Profile", icon: UserCircle, adminOnly: false },
@@ -203,10 +206,13 @@ function Dashboard() {
               {isAdmin && (
                 <>
                   <TabsContent value="budget" className="mt-0">
-                    <BudgetTab leads={leads} />
+                    <BudgetTab leads={leads} properties={inventoryQuery.data ?? []} />
                   </TabsContent>
                   <TabsContent value="team" className="mt-0">
                     <PerformanceTab leads={leadsQuery.data ?? []} clientId={clientId} />
+                  </TabsContent>
+                  <TabsContent value="analytics" className="mt-0">
+                    <AnalyticsTab leads={leadsQuery.data ?? []} properties={inventoryQuery.data ?? []} />
                   </TabsContent>
                   <TabsContent value="inventory" className="mt-0">
                     <InventoryTab

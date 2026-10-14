@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PropertyStateBadge, StatusBadge } from "@/components/crm/badges";
-import { BUDGET_TIERS, buildLeadSummary, formatMoney, type Lead } from "@/lib/crm";
+import { BUDGET_TIERS, buildLeadSummary, formatMoney, type Lead, type Property } from "@/lib/crm";
 
 /** Normalizes a lead's free-text `requirement` (set by the AI parser) into one of the three deal types. */
 type DealType = "BUY" | "RENT" | "LEASE" | "OTHER";
@@ -29,7 +29,7 @@ function dealType(requirement: string | null): DealType {
   return "OTHER";
 }
 
-export function BudgetTab({ leads }: { leads: Lead[] }) {
+export function BudgetTab({ leads, properties = [] }: { leads: Lead[]; properties?: Property[] }) {
   const tiers = useMemo(
     () =>
       BUDGET_TIERS.map((t) => {
@@ -38,9 +38,13 @@ export function BudgetTab({ leads }: { leads: Lead[] }) {
           ...g,
           leads: tierLeads.filter((l) => dealType(l.requirement) === g.key),
         })).filter((g) => g.leads.length > 0);
-        return { ...t, leads: tierLeads, groups };
+        // Count available properties priced within this tier
+        const availableProps = properties.filter(
+          (p) => p.status === "AVAILABLE" && (p.price ?? 0) >= t.min && (p.price ?? 0) < t.max,
+        ).length;
+        return { ...t, leads: tierLeads, groups, availableProps };
       }),
-    [leads],
+    [leads, properties],
   );
 
   const byProperty = useMemo(() => {
@@ -69,7 +73,14 @@ export function BudgetTab({ leads }: { leads: Lead[] }) {
                   {tier.leads.length} leads
                 </span>
               </CardTitle>
-              <p className="text-xs text-muted-foreground">{tier.hint}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">{tier.hint}</p>
+                <span
+                  className={`text-xs font-medium ${tier.availableProps === 0 ? "text-red-500" : "text-green-600"}`}
+                >
+                  {tier.availableProps} available {tier.availableProps === 0 ? "⚠" : "✓"}
+                </span>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {tier.leads.length === 0 && (
@@ -87,7 +98,7 @@ export function BudgetTab({ leads }: { leads: Lead[] }) {
                   </div>
                   <div className="space-y-2">
                     {group.leads.map((lead) => (
-                      <LeadMiniCard key={lead.lead_id} lead={lead} />
+                      <LeadMiniCard key={lead.lead_id} lead={lead} properties={properties} />
                     ))}
                   </div>
                 </div>
@@ -133,8 +144,20 @@ export function BudgetTab({ leads }: { leads: Lead[] }) {
   );
 }
 
-function LeadMiniCard({ lead }: { lead: Lead }) {
+function matchScore(lead: Lead, properties: Property[]): number {
+  // Count how many available properties match the lead on budget, location, and property type
+  return properties.filter((p) => {
+    if (p.status !== "AVAILABLE") return false;
+    if (lead.budget && p.price > (lead.budget * 1.1)) return false; // within 10% over budget
+    if (lead.location && p.location && p.location.toLowerCase() !== lead.location.toLowerCase()) return false;
+    if (lead.property_type && p.configuration && !p.configuration.toLowerCase().includes(lead.property_type.toLowerCase()) && !lead.property_type.toLowerCase().includes(p.configuration.toLowerCase())) return false;
+    return true;
+  }).length;
+}
+
+function LeadMiniCard({ lead, properties }: { lead: Lead; properties: Property[] }) {
   const [open, setOpen] = useState(false);
+  const score = useMemo(() => matchScore(lead, properties), [lead, properties]);
   return (
     <div className="rounded-xl border bg-card p-3">
       <div className="flex items-start justify-between gap-2">
@@ -152,7 +175,16 @@ function LeadMiniCard({ lead }: { lead: Lead }) {
       </div>
       <div className="mt-2 flex flex-wrap gap-1">
         <StatusBadge value={lead.status} />
-        <PropertyStateBadge value={lead.property_state} />
+        {lead.property_state !== "SITE_VISIT_BOOKED" && (
+          <PropertyStateBadge value={lead.property_state} />
+        )}
+        <span
+          className={`crm-badge`}
+          data-tone={score >= 3 ? "green" : score >= 1 ? "yellow" : "red"}
+          title="Matching inventory count"
+        >
+          {score} match{score === 1 ? "" : "es"}
+        </span>
       </div>
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>

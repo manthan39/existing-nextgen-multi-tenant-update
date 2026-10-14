@@ -224,16 +224,42 @@ export function LeadDrawer({
           <div className="flex flex-wrap gap-2 pt-1">
             <StatusBadge value={lead.status} />
             <PropertyStateBadge value={lead.property_state} />
+            {lead.sla_response_minutes != null && (
+              <ToneBadge
+                tone={
+                  lead.sla_response_minutes <= 30
+                    ? "green"
+                    : lead.sla_response_minutes <= 120
+                      ? "yellow"
+                      : "red"
+                }
+                label={`SLA: ${
+                  lead.sla_response_minutes < 60
+                    ? `${lead.sla_response_minutes}m`
+                    : `${Math.floor(lead.sla_response_minutes / 60)}h ${lead.sla_response_minutes % 60 > 0 ? `${lead.sla_response_minutes % 60}m` : ""}`.trim()
+                }`}
+              />
+            )}
+            {lead.drip_stage != null && lead.drip_stage > 0 && (
+              <ToneBadge tone="indigo" label={`AI Follow-up Day ${lead.drip_stage}`} />
+            )}
           </div>
         </SheetHeader>
 
         <div className="space-y-6 px-4 pb-10">
           {closed && (
-            <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-              {dealWon
-                ? "Deal won — this lead is closed. Use Revert below if you need to reopen it."
-                : "This lead is dropped. Most actions are disabled — use Revert Lead below to reactivate."}
-            </p>
+            <div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground space-y-1">
+              <p>
+                {dealWon
+                  ? "Deal won — this lead is closed. Use Revert below if you need to reopen it."
+                  : "This lead is dropped. Most actions are disabled — use Revert Lead below to reactivate."}
+              </p>
+              {dropped && lead.rejection_reason && (
+                <p className="font-medium text-foreground">
+                  Reason: {lead.rejection_reason}
+                </p>
+              )}
+            </div>
           )}
 
           <section className="space-y-2">
